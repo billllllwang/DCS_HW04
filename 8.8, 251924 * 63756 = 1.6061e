@@ -1,0 +1,128 @@
+module MAC(
+	// Input signals
+	clk,
+	rst_n,
+	in_valid,
+	in_mode,
+	in_act,
+	in_wgt,
+	// Output signals
+	out_act_idx,
+	out_wgt_idx,
+	out_idx,
+    out_valid,
+	out_data,
+	out_finish
+);
+
+//---------------------------------------------------------------------
+//   INPUT AND OUTPUT DECLARATION                         
+//---------------------------------------------------------------------
+input clk, rst_n, in_valid, in_mode;
+input [0:7][3:0] in_act;
+input [0:8][3:0] in_wgt;
+output logic [3:0] out_act_idx, out_wgt_idx, out_idx;
+output logic out_valid, out_finish;
+output logic [0:7][11:0] out_data;
+
+//---------------------------------------------------------------------
+//   REG AND WIRE DECLARATION                         
+//---------------------------------------------------------------------
+logic [3:0] out_act_idx_next;
+logic [3:0] out_wgt_idx_next;
+logic [3:0] out_idx_next;
+logic [2:0] idx, idx2;
+logic out_finish_next, out_valid_next, in_val, mode, input_finish_mat, input_finish_con;
+logic [0:7][11:0] out_data_next;
+logic [0:7][0:7][3:0] act_data;
+//---------------------------------------------------------------------
+//   YOUR DESIGN                        
+//---------------------------------------------------------------------
+always_ff @(posedge clk or negedge rst_n) begin
+	if (!rst_n) begin
+		out_valid <= 0;
+		out_wgt_idx <= 4'b1000;
+		out_idx <= 0;
+		out_finish <= 0;
+		out_act_idx_next <= 0;
+		out_wgt_idx_next <= 0;
+		out_data <= '{default:0};
+	end
+	else if ((!mode && input_finish_mat) || (mode && input_finish_con)) begin
+		out_wgt_idx <= {1'd1, out_wgt_idx[2:0] + 1'd1};
+		out_valid <= 1;
+		out_data <= out_data_next;
+		out_idx <= out_idx_next;
+		out_finish <= out_finish_next;
+	end
+	else begin
+		out_finish <= 0;
+		out_valid <= 0;
+		out_wgt_idx <= 4'b1000;
+	end
+end
+
+always_ff @(posedge clk or negedge rst_n) begin
+	if (!rst_n) begin
+		in_val <= 0;
+		mode <= 0;
+		out_act_idx <= 0;
+		input_finish_mat <= 0;
+		input_finish_con <= 0;
+	end
+	else if (in_valid) begin 
+		in_val <= 1; 
+		mode <= in_mode;
+	end
+	else if (in_val) begin
+		idx = out_act_idx[2:0];
+		out_act_idx <= {1'd0, out_act_idx[2:0] + 1'd1};
+		act_data[idx] <= in_act;
+		in_val <= (out_act_idx[2:0] == 7) ? 0 : 1;
+		input_finish_mat <= (out_act_idx[2:0] == 7) ? 1 : 0;
+		input_finish_con <= (out_act_idx > 1) ? 1 : 0;
+	end
+	else if (out_wgt_idx[2:0] == 7) begin
+		input_finish_mat <= 0;
+		input_finish_con <= 0;
+	end
+	else begin
+		in_val <= 0;
+	end
+end
+
+always_comb begin
+	if (!mode) begin //Matrix
+		for(int i = 0; i < 8; i++) begin
+			out_data_next[i] = act_data[i][0] * in_wgt[0] +
+								act_data[i][1] * in_wgt[1] +
+								act_data[i][2] * in_wgt[2] +
+								act_data[i][3] * in_wgt[3] +
+								act_data[i][4] * in_wgt[4] +
+								act_data[i][5] * in_wgt[5] +
+								act_data[i][6] * in_wgt[6] +
+								act_data[i][7] * in_wgt[7];
+		end
+	end
+	else begin //Convolution
+		idx2 = out_wgt_idx[2:0];
+		out_data_next[0] = ((idx2 == 0) ? 0 : (act_data[idx2-1][0] * in_wgt[1] + act_data[idx2-1][1] * in_wgt[2])) +
+							((idx2 == 7) ? 0 : (act_data[idx2+1][0] * in_wgt[7] +act_data[idx2+1][1] * in_wgt[8])) +
+							act_data[idx2][0] * in_wgt[4] +
+							act_data[idx2][1] * in_wgt[5];
+		out_data_next[7] = ((idx2 == 0) ? 0 : (act_data[idx2-1][6] * in_wgt[0] + act_data[idx2-1][7] * in_wgt[1])) +
+							((idx2 == 7) ? 0 : (act_data[idx2+1][6] * in_wgt[6] + act_data[idx2+1][7] * in_wgt[7])) +
+							act_data[idx2][6] * in_wgt[3] +
+							act_data[idx2][7] * in_wgt[4];
+		for(int i = 1; i < 7; i++) begin
+			out_data_next[i] = ((idx2 == 0) ? 0 : (act_data[idx2-1][i-1] * in_wgt[0] + act_data[idx2-1][i] * in_wgt[1] + act_data[idx2-1][i+1] * in_wgt[2])) +
+								act_data[idx2][i-1] * in_wgt[3] + 								
+								act_data[idx2][i] * in_wgt[4] +
+								act_data[idx2][i+1] * in_wgt[5] + 
+								((idx2 == 7) ? 0 : (act_data[idx2+1][i-1] * in_wgt[6] + act_data[idx2+1][i] * in_wgt[7] + act_data[idx2+1][i+1] * in_wgt[8]));
+		end
+	end
+	out_idx_next = (!mode) ? {1'd1, out_wgt_idx[2:0]} : {1'd0, out_wgt_idx[2:0]};
+	out_finish_next = (out_wgt_idx[2:0] == 7) ? 1 : 0;
+end
+endmodule
